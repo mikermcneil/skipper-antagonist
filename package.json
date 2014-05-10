@@ -1,0 +1,37 @@
+{
+  "name": "skipper-antagonist",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Antagonistic Skipper adapter to a pretend container with a very slow drain",
+  "main": "index.js",
+  "scripts": {
+    "test": "node -e \"require('skipper-adapter-tests')({module: require('./')});\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/balderdashy/skipper-antagonist.git"
+  },
+  "keywords": [
+    "skipper",
+    "filesystem",
+    "file",
+    "upload",
+    "upload",
+    "disk",
+    "drive",
+    "sails",
+    "express"
+  ],
+  "author": "Mike McNeil",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/balderdashy/skipper-antagonist/issues"
+  },
+  "homepage": "https://github.com/balderdashy/skipper-antagonist",
+  "devDependencies": {
+    "skipper-adapter-tests": "~1.1.2"
+  },
+  "dependencies": {
+    "lodash": "~2.4.1"
+  }
+}
