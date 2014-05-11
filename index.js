@@ -28,7 +28,13 @@ var mockfs = [
  *
  * Fake adapter for receiving streams of file streams. Simulates a slow drain which will always be slower than incoming file uploads.  This provides a worst-case-scenario test case to ensure backpressure mechanisms are functioning properly, helping to protect us against memory overflow issues with streaming multipart file uploads via Skipper.
  *
- * Uses a mock filesystem to store files, i.e. it's pretend, like fantasy football or barbies or D&D or something.
+ * Uses a mock filesystem to store files in RAM
+ * i.e. it's pretend, like fantasy football or barbies or D&D or something.
+ *
+ * By the way, don't use this adapter for real things unless you know what you're doing.
+ * You probably want to be using something like disk, S3, Swift (OpenStack), azure, dropbox, box.net, etc for real-world use cases.  This adapter is for testing.  That said,
+ * if you want to store binary blobs in memory, go for it- I make no guarantees about this
+ * being efficient or anything like that.
  *
  * @param  {Object} options
  * @return {Object}
