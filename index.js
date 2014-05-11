@@ -5,7 +5,6 @@
 var Writable = require('stream').Writable;
 var _ = require('lodash');
 var path = require('path');
-var Concatable = require('concat-stream');
 
 
 var mockfs = [
@@ -28,6 +27,12 @@ var mockfs = [
  *
  * Fake adapter for receiving streams of file streams. Simulates a slow drain which will always be slower than incoming file uploads.  This provides a worst-case-scenario test case to ensure backpressure mechanisms are functioning properly, helping to protect us against memory overflow issues with streaming multipart file uploads via Skipper.
  *
+ */
+
+var PER_CHUNK_DRAIN_MIN_LATENCY = 200;
+var PER_CHUNK_DRAIN_MAX_LATENCY = 600;
+
+/**
  * Uses a mock filesystem to store files in RAM
  * i.e. it's pretend, like fantasy football or barbies or D&D or something.
  *
@@ -113,14 +118,24 @@ module.exports = function AnagonisticAdapter (options) {
      * @api private
      */
     createWriteStream: function (filepath, encoding) {
-      return Concatable(function whenFinished (contents) {
-        // Reserve 'undefined' for folders-- coerce it to 'null' instead.
-        if (typeof contents === 'undefined') {
-          contents = null;
-        }
-        _(mockfs).reject({path: filepath});
-        mockfs.push({path: filepath, contents: contents});
-      });
+      // Touch the file
+      _(mockfs).reject({path: filepath});
+      mockfs.push({path: filepath, contents: ''});
+
+      var file__ = new Writable();
+      file__._write = function onChunk(chunk, encoding, done) {
+        var chunkid = _.uniqueId();
+        var chunkLatency = _.random(PER_CHUNK_DRAIN_MIN_LATENCY,PER_CHUNK_DRAIN_MAX_LATENCY);
+        console.log(' ++ received chunk #%d...', chunkid);
+
+        // Simulate a slow write
+        setTimeout(function () {
+          _(mockfs).where({path:filepath}).first().contents += chunk;
+          console.log('      -- finished writing chunk #%d...', chunkid);
+          done();
+        }, chunkLatency);
+      };
+      return file__;
     },
 
     receive: Receiver
