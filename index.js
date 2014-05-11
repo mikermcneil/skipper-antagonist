@@ -5,6 +5,7 @@
 var Writable = require('stream').Writable;
 var _ = require('lodash');
 var path = require('path');
+var Concatable = require('concat-stream');
 
 
 var mockfs = [
@@ -77,15 +78,43 @@ module.exports = function AnagonisticAdapter (options) {
     },
 
     read: function (filepath, cb) {
-      var contents = _(mockfs)
+      var err = null;
+
+      var file = _(mockfs)
       .where({path: toStripTrailingSlash()(filepath) })
-      .map(toDereference('contents'))
       .first();
+      if (!file) {
+        err = new Error('Cannot read from path "'+filepath+'"- that\'s a directory!  Maybe you meant to use `ls()`?');
+        err.code = 'ENOENT';
+      }
+
+      var contents = toDereference('contents')(file);
+      if (typeof contents === 'undefined') {
+        err = new Error('Cannot read from path "'+filepath+'"- that\'s a directory!  Maybe you meant to use `ls()`?');
+        err.code = 'EISDIR';
+      }
 
       if (!cb){
         throw new Error('streaming usage of ls() not yet supported for this adapter.');
       }
-      else cb(null, contents);
+      else cb(err, contents);
+    },
+
+    /**
+     * @param  {String} filepath
+     * @param  {String} encoding
+     * @return {Readable}
+     * @api private
+     */
+    createWriteStream: function (filepath, encoding) {
+      return Concatable(function whenFinished (contents) {
+        // Reserve 'undefined' for folders-- coerce it to 'null' instead.
+        if (typeof contents === 'undefined') {
+          contents = null;
+        }
+        _(mockfs).reject({path: filepath});
+        mockfs.push({path: filepath, contents: contents});
+      });
     },
 
     receive: Receiver
@@ -116,8 +145,8 @@ module.exports = function AnagonisticAdapter (options) {
         return __newFile.filename;
       },
 
-      // By default, upload files to `./.tmp/uploads` (relative to cwd)
-      dirname: '.tmp/uploads'
+      // By default, upload files to `/`
+      dirname: '/'
     });
 
     var receiver__ = Writable({
@@ -144,28 +173,19 @@ module.exports = function AnagonisticAdapter (options) {
         });
       }
 
-      // Ensure necessary parent directories exist:
-      fsx.mkdirs(dirPath, function (mkdirsErr) {
-        // If we get an error here, it's probably because the Node
-        // user doesn't have write permissions at the designated
-        // path.
-        if (mkdirsErr) {
-          return done(mkdirsErr);
-        }
-
-        var outs = fsx.createWriteStream(filePath, encoding);
-        __newFile.on('error', function (err) {
-          // console.log('***** READ error on file ' + __newFile.filename, '::', err);
-        });
-        outs.on('error', function failedToWriteFile(err) {
-          // console.log('Error on output stream- garbage collecting unfinished uploads...');
-          gc(err);
-        });
-        outs.on('finish', function successfullyWroteFile() {
-          done();
-        });
-        __newFile.pipe(outs);
+      // Write file stream
+      var outs = adapter.createWriteStream(filePath, encoding);
+      __newFile.on('error', function (err) {
+        // console.log('***** READ error on file ' + __newFile.filename, '::', err);
       });
+      outs.on('error', function failedToWriteFile(err) {
+        // console.log('Error on output stream- garbage collecting unfinished uploads...');
+        return gc(err);
+      });
+      outs.on('finish', function successfullyWroteFile() {
+        done();
+      });
+      __newFile.pipe(outs);
 
     };
 
