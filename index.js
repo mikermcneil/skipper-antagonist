@@ -4,13 +4,30 @@
 
 var Writable = require('stream').Writable;
 var _ = require('lodash');
+var path = require('path');
 
 
+var mockfs = [
+  {path: '/foo'},
+  {path: '/foo/bar'},
+  {path: '/foo/baz'},
+  {path: '/foo/baz/br.jpg', contents: 'blah'},
+  {path: '/foo/baz/buz.png', contents: 'blah2'},
+  /* e.g.
+  {
+    path: '/foo/bar',
+    contents: 'j49q2GHDAOH$)QHASD)JQ@$KF)Q$CMD)VNCÅÎÍ˝‚›ÓÔÍÎÅÎÓ‚Œ€‹›'
+  }
+  // (if no 'contents', this is a directory.)
+  */
+];
 
 /**
  * skipper-antagonist
  *
  * Fake adapter for receiving streams of file streams. Simulates a slow drain which will always be slower than incoming file uploads.  This provides a worst-case-scenario test case to ensure backpressure mechanisms are functioning properly, helping to protect us against memory overflow issues with streaming multipart file uploads via Skipper.
+ *
+ * Uses a mock filesystem to store files, i.e. it's pretend, like fantasy football or barbies or D&D or something.
  *
  * @param  {Object} options
  * @return {Object}
@@ -22,25 +39,56 @@ module.exports = function AnagonisticAdapter (options) {
   var adapter = {
 
     rm: function (filepath, cb){
-      return fsx.unlink(filepath, function(err) {
-        // Ignore "doesn't exist" errors
-        if (err && err.code !== 'ENOENT') { return cb(err); }
-        else return cb();
-      });
-    },
-    ls: function (dirpath, cb) {
-      return fsx.readdir(dirpath, cb);
-    },
-    read: function (filepath, cb) {
-      if (cb) {
-        return fsx.readFile(filepath, cb);
+
+      // INCLUDES grandchildren and other descendants
+      // AND `filepath` ITSELF!
+      var DESCENDANTS_EXPR = new RegExp('^' + toStripTrailingSlash()(filepath));
+
+      mockfs = _(mockfs)
+      .reject(function (file) {
+        return ifMatch(DESCENDANTS_EXPR)(toDereference('path')(file));
+      })
+      .valueOf();
+
+      if (!cb){
+        throw new Error('streaming usage of ls() not yet supported for this adapter.');
       }
-      else {
-        return fsx.createReadStream(filepath);
-      }
+      else cb();
     },
 
-    receive: DiskReceiver
+    ls: function (dirpath, cb) {
+
+      // Like `ls` on the command line:
+      // Do not include grandchildren and other descendants
+      // Also do not include the directory itself.
+      // Only its direct children (directories and files).
+      var CHILDFILES_EXPR = new RegExp('^' + toStripTrailingSlash()(dirpath) + '/[^/]+$');
+
+      var matchingFilenames = _(mockfs)
+      .map(toDereference('path'))
+      .filter(ifMatch(CHILDFILES_EXPR))
+      .map(toBasename())
+      .valueOf();
+
+      if (!cb){
+        throw new Error('streaming usage of ls() not yet supported for this adapter.');
+      }
+      else cb(null, matchingFilenames);
+    },
+
+    read: function (filepath, cb) {
+      var contents = _(mockfs)
+      .where({path: toStripTrailingSlash()(filepath) })
+      .map(toDereference('contents'))
+      .first();
+
+      if (!cb){
+        throw new Error('streaming usage of ls() not yet supported for this adapter.');
+      }
+      else cb(null, contents);
+    },
+
+    receive: Receiver
   };
 
   return adapter;
@@ -56,7 +104,7 @@ module.exports = function AnagonisticAdapter (options) {
    * @param  {Object} options
    * @return {Stream.Writable}
    */
-  function DiskReceiver (options) {
+  function Receiver (options) {
     options = options || {};
 
     _.defaults(options, {
@@ -82,22 +130,9 @@ module.exports = function AnagonisticAdapter (options) {
     receiver__._write = function onFile(__newFile, encoding, done) {
 
       // Determine location where file should be written:
-      // -------------------------------------------------------
-      var filePath, dirPath, filename;
-      if (options.id) {
-        // If `options.id` was specified, use it directly as the path.
-        filePath = options.id;
-        dirPath = path.dirname(filePath);
-        filename = path.basename(filePath);
-      }
-      else {
-        // Otherwise, use the more sophisiticated options:
-        dirPath = path.resolve(options.dirname);
-        filename = options.filename || options.saveAs(__newFile);
-        filePath = path.join(dirPath, filename);
-      }
-      // -------------------------------------------------------
-
+      var dirPath = path.resolve(options.dirname);
+      var filename = options.filename || options.saveAs(__newFile);
+      var filePath = path.join(dirPath, filename);
 
       // Garbage-collect the bytes that were already written for this file.
       // (called when a read or write error occurs)
@@ -135,9 +170,37 @@ module.exports = function AnagonisticAdapter (options) {
     };
 
     return receiver__;
-  } // </DiskReceiver>
+  } // </Receiver>
 
 
 };
 
 
+
+
+
+
+
+
+
+// just indulging my lisp-y sensibilities for a moment...
+function toDereference (key) {
+  return function _dereference (obj) {
+    return obj[key];
+  };
+}
+function ifMatch (matchExpr) {
+  return function (str) {
+    return str.match(matchExpr);
+  };
+}
+function toBasename () {
+  return function (somePath) {
+    return path.basename(somePath);
+  };
+}
+function toStripTrailingSlash () {
+  return function (somePath) {
+    return somePath.replace(/\/$/, '');
+  };
+}
